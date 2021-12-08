@@ -1,0 +1,6 @@
+*.pyc
+/dist/
+/*.egg-info
+*/__pycache__
+*.hdf5
+!examples/inputfiles/a_bfe.hdf5
