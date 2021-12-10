@@ -1,7 +1,7 @@
-from filters import Filter, filterB, filterR, filterP, fromVtoP
+from .filters import Filter, filterB, filterR, filterP, fromVtoP
 from platosim.simulation import Simulation
 from platosim.simfile import SimFile
-from sciencetools.fitting import fit
+from .fitting import fit
 
 import glob
 import os
@@ -17,15 +17,23 @@ from scipy.stats import chisquare, poisson, norm
 from PyAstronomy import funcFit, pyasl
 from pytransit import QuadraticModel
 from astropy.io import fits
+import pkg_resources
 
 home = os.environ["PLATO_WORKDIR"] + "/"
 
-# Relation between magnitude and platosim flux
-a = np.genfromtxt(home + "platocon/contamination/exponentialparameter.txt")
-#mag, flux = np.genfromtxt(home + "platocon/contamination/spline.csv", delimiter=",")[1:,1:].T
-mag, flux = np.genfromtxt(home + "platocon/contamination/spline.csv", delimiter=",").T
+resource_package = __name__
+resource_path1 = '/'.join(('files', 'exponentialparameter.txt'))
+path1 = pkg_resources.resource_stream(resource_package, resource_path1)
+resource_path2 = '/'.join(('files', 'spline.csv'))
+path2 = pkg_resources.resource_stream(resource_package, resource_path2)
 
-correction = interp1d(mag, flux)
+
+# Relation between magnitude and platosim flux
+a = np.genfromtxt(path1)
+#mag, flux = np.genfromtxt(home + "platocon/contamination/spline.csv", delimiter=",")[1:,1:].T
+mag, flux = np.genfromtxt(path2, delimiter=",").T
+
+#correction = interp1d(mag, flux)
 def magToFlux(magnitude):
     return a*np.exp(-0.92103*magnitude) + correction(magnitude)
 
@@ -116,9 +124,9 @@ class Star:
         """
         This function returns a tuple (u1,u2) of limb darkening coefficients, 
         corresponding to the self Star object and to a certain given Filter. 
-        
-
         """
+
+        # The following code was written by Nicholas Jannsen
         grid_no = 1000 # ZELF
 
         wvl_int = np.linspace(passband.wv_min, passband.wv_max, grid_no)

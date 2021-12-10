@@ -2,6 +2,8 @@ import numpy as np
 from scipy.interpolate import interp1d
 import os
 
+#import importlib.resources as pkg_resources
+
 class Filter:
     def __init__(self, func, wv_min, wv_max):
         self.func = func
@@ -23,7 +25,7 @@ class Filter:
         return self.hashCode() == other.hashCode()
 
     def __repr__(self): #print function
-        return("vmin = ", self.wv_min , " |  vmax = ", self.wv_max)
+        return("vmin = " + str(self.wv_min) + " |  vmax = " +  str(self.wv_max))
 
     
 
@@ -94,9 +96,13 @@ def tVisual(wav):
 
 #Importing the PLATO Bandpass
 
-home = os.environ["PLATO_WORKDIR"] + "/"
-path = home + 'platocon/filters/plato_bandpass.txt'
-plato_bandpass = np.loadtxt(path,dtype=float)
+import pkg_resources
+
+# Could be any dot-separated package/module name or a "Requirement"
+resource_package = __name__
+resource_path = '/'.join(('files', 'plato_bandpass.txt'))  # Do not use os.path.join()
+path = pkg_resources.resource_stream(resource_package, resource_path)
+plato_bandpass = np.loadtxt(path, dtype=float)
 plato_bandpass_spline = interp1d(plato_bandpass[:,0], plato_bandpass[:,1])
 
 
