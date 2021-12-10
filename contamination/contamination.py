@@ -324,7 +324,7 @@ class Transit:
 
 class StarConfiguration:
     """
-    Class representing a number of indistinguishable stars. Any of these stars, may undergo a transit.
+    Class representing a number of indistinguishable stars. Any of these stars may undergo a transit.
     
     Parameters
     ----------
@@ -435,6 +435,7 @@ class StarConfiguration:
             return total_flux
     
     def getContaminatedFluxNorm(self, times: np.ndarray, passband: Filter):
+        """Get normalised contaminated flux"""
         flux = self.getContaminatedFlux(times, passband)
         return flux / self.getContaminatedBaseFlux(passband)
 
@@ -466,6 +467,22 @@ class LimbDarkening(funcFit.OneDFit):
         return y
 
 class LightCurveGeneral:
+    """
+    Class representing lightcurve data from a simulation or real observations
+    
+    Parameters
+    ----------
+    times : np.ndarray
+        array of time datapoints
+    flux : np.ndarray
+        array of flux datapoints
+    stddev : np.ndarray
+        array of standard deviations on the flux datapoints
+    
+    Attributes
+    ----------
+    See parameters
+    """
 
     def __init__(self, times: np.ndarray, flux: np.ndarray, stddev: np.ndarray):
         self.times = times
@@ -474,6 +491,7 @@ class LightCurveGeneral:
     
 
     def applyMedian(self, N):
+        """Returns a new LightCurve object where each data points is the median of N data points in self."""
         Nbins = int(len(self.times) / N)
 
         ts = []
@@ -489,6 +507,7 @@ class LightCurveGeneral:
         return LightCurveGeneral(*np.array([ts, fs, es]))
 
     def fitTransit(self, host: Star, guess: TransitObject, passband: Filter, contaminationLevel=0, rescaling="default", pandas=False, **kwargs):
+        """Fit a transit to the lightcurve. host star and passband is used to calculate baseflux and limb darkening coefficients"""
         if type(rescaling) == str and rescaling == "default":
             rescaling = np.array([10, 1, 1/20, 1, 5])
         elif rescaling is None:
@@ -516,7 +535,21 @@ class LightCurveGeneral:
 
 
 class LightCurve(LightCurveGeneral):
+    """
+    Class representing lightcurve data from a simulation or real observations,
+    where datapoints are Poisson disttributed
     
+    Parameters
+    ----------
+    times : np.ndarray
+        array of time datapoints
+    flux : np.ndarray
+        array of flux datapoints
+    
+    Attributes
+    ----------
+    See parameters
+    """
     # Correction to account for imperfect Poisson distribution
     # The real flux is approximately distributed as the sum of a Poisson and a normal distribution
     # This value corresponds to sigma**2 - mu of the added normal distribution
@@ -530,11 +563,31 @@ class LightCurve(LightCurveGeneral):
     
     @classmethod
     def fromSimFile(cls, simFile , starID):
+        """Returns a LightCurve object based on a PLATOSim simFile and star ID (usually 0)"""
         lc = simFile.getLightCurve(starID)
         return LightCurve(lc[0]/3600, lc[1])
 
 
 class PhotometryData:
+    """
+    Class representing lightcurve data in multiple passbands.
+    
+    Parameters
+    ----------
+    stars : List[Star]
+        list of stars responsible for the observed flux
+    lightCurves : List[LightCurveGeneral]
+        list of lightcurves, one for each passband
+    passbands : List[Filter]
+        list of passbands, order corresponding to lightCurves
+    baseInterval : tuple
+        interval in which no transit is taking placed, used to calculate base flux value.
+        If None, base value is calculated from stars.
+    
+    Attributes
+    ----------
+    See parameters
+    """
 
     def __init__(self, stars: List[Star], lightCurves: List[LightCurveGeneral], passbands: List[Filter], baseInterval: tuple = None):
         self.stars = stars
@@ -546,25 +599,35 @@ class PhotometryData:
         if not len(self.lightCurves) == len(passbands):
             raise ValueError("The same number of lightCurves and passbands must be supplied")
         
+        self.baseInterval = baseInterval
         self.baseValues = None
         if baseInterval is not None:
             self.baseValues = self.calculateBaseValues(baseInterval[0], baseInterval[1])
 
     @classmethod
     def fromSimFiles(cls, stars: List[Star], simfiles: List[SimFile], ID: int, passbands: List[Filter], baseInterval: tuple = None):
+        """Generate PhotometryData object from list of simfiles and star ID"""
         return PhotometryData(stars, [LightCurve.fromSimFile(sim, ID) for sim in simfiles] , passbands, baseInterval)
 
     def getLightCurve(self, passband: Filter):
+        """Get LightCurve object for a particular passband"""
         return self.lightCurves[self.passbands.index(passband)]
 
     def getFluxData(self, passband: Filter):
+        """Get array of fluxes for a particular passband"""
         return self.getLightCurve(passband).flux
     
     def getStddevData(self, passband: Filter):
+        """Get array of standard deviations for a particular passband"""
         return self.getLightCurve(passband).stddev
     
+    def applyMedian(self, N):
+        """Returns a PhotometryData object where each datapoint is the mean of N datapoints in self"""
+        lcs = [lc.applyMedian(N) for lc in self.lightCurves]
+        return PhotometryData(self.stars, lcs, self.passbands, self.baseInterval)
 
     def getLikelihoodRatio(self, transit1: Transit, transit2: Transit):
+        """Calculate the likelihood ratio between two transits from the data, along with p-values for both transits"""
         config1 = StarConfiguration([transit1.host, transit2.host], [transit1], self.baseValues)
         config2 = StarConfiguration([transit1.host, transit2.host], [transit2], self.baseValues)
         f1 = np.array([config1.getContaminatedFlux(self.times, band) for band in self.passbands])
@@ -592,6 +655,7 @@ class PhotometryData:
         return lnlambda, p1, p2
 
     def testModels(self, guess: TransitObject, significance: float, **kwargs):
+        """Test which of the stars is actually undergoing the transit for a certain significance value guess is used for fitting"""
         if len(self.stars) != 2:
             raise NotImplementedError("Deciding between multiple stars not yet implemented")
         
@@ -600,13 +664,24 @@ class PhotometryData:
         fit1 = self.fitAll(star1, guess, showErrors=False, **kwargs)
         fit2 = self.fitAll(star2, guess, showErrors=False, **kwargs)
         l, p1, p2 = self.getLikelihoodRatio(fit1, fit2)
+        if p1 < significance:
+            return star2
+        elif p2 < significance:
+            return star1
+        else:
+            return None
     
     def calculateBaseValues(self, minimum, maximum):
+        """Calculate base flux values as the mean of a given interval in the data"""
         mask = np.logical_and(self.times > minimum, self.times < maximum)
         return {band: np.mean(lc.flux[mask]) for lc, band in zip(self.lightCurves, self.passbands)}
 
-    def fitAll(self, host: Star, guess: TransitObject, constants=[], method=None, rescaling="default", pandas=False, showErrors=True, **kwargs):
-        """Fit data taking into """
+    def fitAll(self, host: Star, guess: TransitObject, constants=[], rescaling="default", pandas=False, silent=False, showErrors=True, **kwargs):
+        """
+        Fit transit to data in all lightcurves, taking into account contamination. Host is the star assumed to be undergoing the transit.
+        constants allow to hold certain parameters constant (name of parameter). If pandas is set to True, a pandas DataFrame is returned, 
+        otherwise a numpy array with fit values and errors. Any additional kwargs are passed to the underlying scipy.optimize.minimize algorithm.
+        """
         if type(rescaling) == str and rescaling == "default":
             rescaling = np.array([10, 1, 1/20, 1, 5])
         elif rescaling is None:
@@ -629,7 +704,7 @@ class PhotometryData:
         stds = np.array([lc.stddev for lc in self.lightCurves])
 
         defaults_rescaled = defaults*rescaling
-        result = fit(self.times, fluxes, stds, model, defaults_rescaled, pandas=pandas, method=method, silent=False, **kwargs)/rescaling[:,np.newaxis]
+        result = fit(self.times, fluxes, stds, model, defaults_rescaled, pandas=pandas, silent=silent, **kwargs)/rescaling[:,np.newaxis]
         
         # Check if the fit produced something
         if pandas:
@@ -649,7 +724,7 @@ class PhotometryData:
         else:
             return Transit(host, Planet(*result[:,0]))
 
-    def configurationFromFit(self, host: Star, fitParameters: List[float]) -> StarConfiguration:
+    def configurationFromFit(self, host: Star, fitParameters: List[float]):
         """Convenience function, quickly create StarConfiguration object from fit parameters"""
         return StarConfiguration(self.stars, [Transit(host, Planet(*fitParameters))], self.baseValues)
 

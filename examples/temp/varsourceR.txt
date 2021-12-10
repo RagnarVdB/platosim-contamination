@@ -1,1 +1,0 @@
-0    ./temp/timeseries0R.txt
